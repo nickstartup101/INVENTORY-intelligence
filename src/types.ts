@@ -33,6 +33,7 @@ export interface ActivityLog {
   text: string;
   time: string;
   type: LogType;
+  timestamp?: number; // ໃຊ້ຈັດຮຽງໃນ Firestore (orderBy), ບໍ່ບັງຄັບໃນ mock data ເກົ່າ
 }
 
 export interface Employee {
