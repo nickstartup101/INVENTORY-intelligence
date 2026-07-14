@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import DashboardView from './components/DashboardView';
@@ -8,14 +8,29 @@ import EmployeesView from './components/EmployeesView';
 import SettingsView from './components/SettingsView';
 import ReportsView from './components/ReportsView';
 
+import { Product, Liquid, Task, ActivityLog, Employee, LogType } from './types';
 import {
-  initialProducts,
-  initialLiquids,
-  initialTasks,
-  initialLogs,
-  initialEmployees,
-} from './data';
-import { Product, Liquid, Task, ActivityLog, Employee } from './types';
+  seedInitialData,
+  subscribeToProducts,
+  subscribeToLiquids,
+  subscribeToTasks,
+  subscribeToLogs,
+  subscribeToEmployees,
+  addLog as writeLog,
+  adjustProductStock,
+  updateProduct,
+  addProduct,
+  deleteProduct,
+  updateLiquidLevel,
+  toggleTask,
+  addTask,
+  deleteTask,
+  updateEmployee,
+  addEmployee,
+  deleteEmployee,
+  clockIn,
+  clockOut,
+} from './services/inventoryService';
 
 export default function App() {
   // Global States
@@ -23,27 +38,44 @@ export default function App() {
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
   const [searchText, setSearchText] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  const [products, setProducts] = useState<Product[]>(initialProducts);
-  const [liquids, setLiquids] = useState<Liquid[]>(initialLiquids);
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
-  const [logs, setLogs] = useState<ActivityLog[]>(initialLogs);
-  const [employees, setEmployees] = useState<Employee[]>(initialEmployees);
+  // ຂໍ້ມູນເຫຼົ່ານີ້ຕອນນີ້ແມ່ນ "cache" ຂອງ Firestore, ອັບເດດອັດຕະໂນມັດ
+  // ຜ່ານ onSnapshot — ບໍ່ຕ້ອງອັບເດດ state ໂດຍກົງອີກຕໍ່ໄປ, ໃຫ້ຂຽນຂໍ້ມູນຜ່ານ
+  // ຟັງຊັນຈາກ services/inventoryService.ts ແທນ (ຈະ sync ກັບທຸກອຸປະກອນ realtime).
+  const [products, setProducts] = useState<Product[]>([]);
+  const [liquids, setLiquids] = useState<Liquid[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [logs, setLogs] = useState<ActivityLog[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
 
-  // Helper to append action log
-  const handleLogMessage = (text: string, type: 'success' | 'info' | 'warning' | 'error') => {
-    const timeNow = new Date().toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    });
-    const newLog: ActivityLog = {
-      id: `log-${Date.now()}`,
-      text,
-      time: timeNow,
-      type,
-    };
-    setLogs(prev => [newLog, ...prev.slice(0, 15)]);
+  // Bootstrap: seed Firestore (ຄັ້ງດຽວ ຖ້າຍັງວ່າງ) ແລ້ວເປີດ real-time listeners
+  useEffect(() => {
+    let unsubs: Array<() => void> = [];
+
+    (async () => {
+      try {
+        await seedInitialData();
+      } catch (err) {
+        console.error('Seed Firestore ລົ້ມເຫລວ:', err);
+      }
+
+      unsubs = [
+        subscribeToProducts(setProducts),
+        subscribeToLiquids(setLiquids),
+        subscribeToTasks(setTasks),
+        subscribeToLogs(setLogs),
+        subscribeToEmployees(setEmployees),
+      ];
+      setIsLoading(false);
+    })();
+
+    return () => unsubs.forEach(u => u());
+  }, []);
+
+  // Helper: ບັນທຶກ log ຜ່ານ Firestore (UI ຈະອັບເດດເອງຜ່ານ subscribeToLogs)
+  const handleLogMessage = (text: string, type: LogType) => {
+    writeLog(text, type).catch(err => console.error('ບັນທຶກ log ລົ້ມເຫລວ:', err));
   };
 
   // Loyverse sync simulation trigger
@@ -77,21 +109,26 @@ export default function App() {
         return (
           <DashboardView
             products={searchFilteredProducts}
-            setProducts={setProducts}
             liquids={liquids}
-            setLiquids={setLiquids}
             tasks={tasks}
-            setTasks={setTasks}
             logs={logs}
-            setLogs={setLogs}
             employees={employees}
+            // ຂຽນຂໍ້ມູນຜ່ານ Firestore ໂດຍກົງ, ບໍ່ໃຊ້ setState ໂດຍກົງອີກ
+            onAdjustStock={adjustProductStock}
+            onUpdateLiquidLevel={updateLiquidLevel}
+            onToggleTask={toggleTask}
+            onAddTask={addTask}
+            onDeleteTask={deleteTask}
           />
         );
       case 'inventory':
         return (
           <InventoryView
             products={products}
-            setProducts={setProducts}
+            onAddProduct={addProduct}
+            onUpdateProduct={updateProduct}
+            onDeleteProduct={deleteProduct}
+            onAdjustStock={adjustProductStock}
             onLogMessage={handleLogMessage}
           />
         );
@@ -101,7 +138,11 @@ export default function App() {
         return (
           <EmployeesView
             employees={employees}
-            setEmployees={setEmployees}
+            onAddEmployee={addEmployee}
+            onUpdateEmployee={updateEmployee}
+            onDeleteEmployee={deleteEmployee}
+            onClockIn={clockIn}
+            onClockOut={clockOut}
             onLogMessage={handleLogMessage}
           />
         );
@@ -113,18 +154,27 @@ export default function App() {
         return (
           <DashboardView
             products={searchFilteredProducts}
-            setProducts={setProducts}
             liquids={liquids}
-            setLiquids={setLiquids}
             tasks={tasks}
-            setTasks={setTasks}
             logs={logs}
-            setLogs={setLogs}
             employees={employees}
+            onAdjustStock={adjustProductStock}
+            onUpdateLiquidLevel={updateLiquidLevel}
+            onToggleTask={toggleTask}
+            onAddTask={addTask}
+            onDeleteTask={deleteTask}
           />
         );
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#050505] text-white flex items-center justify-center">
+        <p className="text-sm opacity-70">ກຳລັງເຊື່ອມຕໍ່ Firebase...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#050505] text-[#ffffff]">
@@ -139,15 +189,15 @@ export default function App() {
       />
 
       {/* MAIN CONTAINER */}
-      <main 
+      <main
         className={`min-h-screen transition-all duration-300 ${
           isCollapsed ? 'pl-20' : 'pl-20 md:pl-64'
         }`}
       >
         {/* HEADER BAR */}
-        <Header 
-          searchText={searchText} 
-          onSearchChange={setSearchText} 
+        <Header
+          searchText={searchText}
+          onSearchChange={setSearchText}
           products={products}
         />
 
@@ -159,4 +209,3 @@ export default function App() {
     </div>
   );
 }
-
