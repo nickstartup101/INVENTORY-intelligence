@@ -1,0 +1,18 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ⚠️ ໂໝດ prototype: ອະນຸຍາດອ່ານ/ຂຽນທັງໝົດ ບໍ່ຕ້ອງລ໋ອກອິນ
+    // ເໝາະສຳລັບທົດລອງເທົ່ານັ້ນ. ກ່ອນຂຶ້ນໃຊ້ຈິງ (production) ຕ້ອງປ່ຽນ
+    // ໃຫ້ກວດ auth ແລະ/ຫຼື role ຂອງພະນັກງານກ່ອນອະນຸຍາດຂຽນ.
+    match /{document=**} {
+      allow read, write: if true;
+    }
+
+    // ຕົວຢ່າງ rule ທີ່ຮັດກຸມກວ່າ ເມື່ອເພີ່ມ Firebase Auth ແລ້ວ:
+    // match /products/{productId} {
+    //   allow read: if true;
+    //   allow write: if request.auth != null;
+    // }
+  }
+}
