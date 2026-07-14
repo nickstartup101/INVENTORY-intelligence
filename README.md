@@ -1,2 +1,0 @@
-# INVENTORY-intelligence
-inventory stock
